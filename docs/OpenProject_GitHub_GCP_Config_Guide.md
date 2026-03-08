@@ -342,7 +342,9 @@ jobs:
 
           echo "wp\_id=$\{WP\_ID\}" >> $GITHUB\_OUTPUT
 
-      \- name: Set status based on event
+          echo "branch=$\{BRANCH\}" >> $GITHUB\_OUTPUT
+
+      \- name: Set status and comment based on event
 
         id: status
 
@@ -350,19 +352,77 @@ jobs:
 
           if \[ "$\{\{ github\.event\_name \}\}" = "push" \]; then
 
-            echo "status\_id=7" >> $GITHUB\_OUTPUT   \# In Progress
+            echo "status\_id=7" >> $GITHUB\_OUTPUT
+
+            SHORT\_SHA=$\(echo "$\{\{ github\.sha \}\}" | cut \-c1\-7\)
+
+            COMMIT\_URL="${\{ github\.server\_url \}\}/$\{\{ github\.repository \}\}/commit/$\{\{ github\.sha \}\}"
+
+            COMMIT\_MSG=$\(echo "$\{\{ github\.event\.head\_commit\.message \}\}" | head \-1\)
+
+            AUTHOR="${\{ github\.event\.head\_commit\.author\.name \}\}"
+
+            COMMENT="\*\*Commit pushed\*\* to branch \\\`$\{\{ steps\.extract\.outputs\.branch \}\}\\\`\\n\\n\*\*Commit:\*\* \[$\{SHORT\_SHA\}\]\($\{COMMIT\_URL\}\)\\n\*\*Author:\*\* $\{AUTHOR\}\\n\*\*Message:\*\* $\{COMMIT\_MSG\}\\n\\nStatus changed to \*\*In Progress\*\*"
+
+            echo "comment<<EOFCOMMENT" >> $GITHUB\_OUTPUT
+
+            echo "$COMMENT" >> $GITHUB\_OUTPUT
+
+            echo "EOFCOMMENT" >> $GITHUB\_OUTPUT
 
           elif \[ "$\{\{ github\.event\.action \}\}" = "opened" \]; then
 
-            echo "status\_id=9" >> $GITHUB\_OUTPUT   \# In Testing (In Review)
+            echo "status\_id=9" >> $GITHUB\_OUTPUT
+
+            PR\_URL="${\{ github\.event\.pull\_request\.html\_url \}\}"
+
+            PR\_TITLE="${\{ github\.event\.pull\_request\.title \}\}"
+
+            PR\_NUM="${\{ github\.event\.pull\_request\.number \}\}"
+
+            COMMENT="\*\*Pull Request opened\*\*\\n\\n\*\*PR:\*\* \[\#$\{PR\_NUM\} — $\{PR\_TITLE\}\]\($\{PR\_URL\}\)\\n\*\*Branch:\*\* \\\`$\{\{ steps\.extract\.outputs\.branch \}\}\\\` \-> \\\`main\\\`\\n\\nStatus changed to \*\*In Testing\*\*"
+
+            echo "comment<<EOFCOMMENT" >> $GITHUB\_OUTPUT
+
+            echo "$COMMENT" >> $GITHUB\_OUTPUT
+
+            echo "EOFCOMMENT" >> $GITHUB\_OUTPUT
 
           elif \[ "$\{\{ github\.event\.pull\_request\.merged \}\}" = "true" \]; then
 
-            echo "status\_id=10" >> $GITHUB\_OUTPUT  \# Tested (Resolved)
+            echo "status\_id=10" >> $GITHUB\_OUTPUT
+
+            PR\_URL="${\{ github\.event\.pull\_request\.html\_url \}\}"
+
+            PR\_TITLE="${\{ github\.event\.pull\_request\.title \}\}"
+
+            PR\_NUM="${\{ github\.event\.pull\_request\.number \}\}"
+
+            ACTOR="${\{ github\.actor \}\}"
+
+            COMMENT="\*\*Pull Request merged\*\*\\n\\n\*\*PR:\*\* \[\#$\{PR\_NUM\} — $\{PR\_TITLE\}\]\($\{PR\_URL\}\)\\n\*\*Merged by:\*\* $\{ACTOR\}\\n\\nStatus changed to \*\*Tested\*\*"
+
+            echo "comment<<EOFCOMMENT" >> $GITHUB\_OUTPUT
+
+            echo "$COMMENT" >> $GITHUB\_OUTPUT
+
+            echo "EOFCOMMENT" >> $GITHUB\_OUTPUT
 
           elif \[ "$\{\{ github\.event\.action \}\}" = "closed" \]; then
 
-            echo "status\_id=14" >> $GITHUB\_OUTPUT   \# Rejected
+            echo "status\_id=14" >> $GITHUB\_OUTPUT
+
+            PR\_URL="${\{ github\.event\.pull\_request\.html\_url \}\}"
+
+            PR\_NUM="${\{ github\.event\.pull\_request\.number \}\}"
+
+            COMMENT="\*\*Pull Request closed\*\* without merge\\n\\n\*\*PR:\*\* \[\#$\{PR\_NUM\}\]\($\{PR\_URL\}\)\\n\\nStatus changed to \*\*Rejected\*\*"
+
+            echo "comment<<EOFCOMMENT" >> $GITHUB\_OUTPUT
+
+            echo "$COMMENT" >> $GITHUB\_OUTPUT
+
+            echo "EOFCOMMENT" >> $GITHUB\_OUTPUT
 
           fi
 
@@ -416,6 +476,26 @@ jobs:
 
             \}'
 
+      \- name: Add comment to OpenProject
+
+        if: steps\.extract\.outputs\.wp\_id \!= '' && steps\.status\.outputs\.comment \!= ''
+
+        run: |
+
+          AUTH=$\(echo \-n "apikey:$\{\{ secrets\.OPENPROJECT\_API\_TOKEN \}\}" | base64 \-w 0\)
+
+          COMMENT=$\(echo '$\{\{ steps\.status\.outputs\.comment \}\}'\)
+
+          curl \-sf \-X POST \\
+
+            "$\{\{ secrets\.OPENPROJECT\_URL \}\}/api/v3/work\_packages/$\{\{ steps\.extract\.outputs\.wp\_id \}\}/activities" \\
+
+            \-H "Content\-Type: application/json" \\
+
+            \-H "Authorization: Basic $\{AUTH\}" \\
+
+            \-d "\{\\"comment\\": \{\\"raw\\": \\"$\{COMMENT\}\\"\}\}"
+
 ### __Plik 2: tests\.yml — testy \+ raportowanie błędów do OpenProject__
 
 name: Tests
@@ -434,7 +514,9 @@ jobs:
 
       \- uses: actions/setup\-python@v5
 
-        with: \{ python\-version: '3\.12' \}
+        with:
+
+          python\-version: '3\.12'
 
       \- run: pip install \-r requirements\.txt
 
@@ -442,11 +524,15 @@ jobs:
 
         id: pytest
 
-        run: pytest \-\-tb=short \-\-json\-report \-\-json\-report\-file=test\_report\.json || true
+        continue\-on\-error: true
+
+        run: pytest \-\-tb=short \-\-json\-report \-\-json\-report\-file=test\_report\.json
 
       \- name: Create Bug in OpenProject on test failure
 
-        if: failure\(\)
+        id: create\_bug
+
+        if: steps\.pytest\.outcome == 'failure'
 
         run: |
 
@@ -458,7 +544,9 @@ jobs:
 
           AUTH=$\(echo \-n "apikey:$\{\{ secrets\.OPENPROJECT\_API\_TOKEN \}\}" | base64 \-w 0\)
 
-          curl \-sf \-X POST \\
+          RUN\_URL="${\{ github\.server\_url \}\}/$\{\{ github\.repository \}\}/actions/runs/$\{\{ github\.run\_id \}\}"
+
+          RESPONSE=$\(curl \-sf \-X POST \\
 
             "$\{\{ secrets\.OPENPROJECT\_URL \}\}/api/v3/projects/$\{\{ secrets\.OPENPROJECT\_PROJECT\_ID \}\}/work\_packages" \\
 
@@ -470,7 +558,7 @@ jobs:
 
               \\"subject\\": \\"\[BUG\] Test failure in $\{BRANCH\} — $\{FAILURES\} tests failed\\",
 
-              \\"description\\": \{\\"format\\": \\"markdown\\", \\"raw\\": \\"\#\# Automatyczny Bug z GitHub Actions\\\\n\\\\n\*\*Branch:\*\* $\{BRANCH\}\\\\n\*\*PR:\*\* $\{\{ github\.event\.pull\_request\.html\_url \}\}\\\\n\*\*Run:\*\* $\{\{ github\.server\_url \}\}/$\{\{ github\.repository \}\}/actions/runs/$\{\{ github\.run\_id \}\}\\\\n\\\\nSzczegóły w powyższym linku\.\\"\},
+              \\"description\\": \{\\"format\\": \\"markdown\\", \\"raw\\": \\"\#\# Automatyczny Bug z GitHub Actions\\\\n\\\\n\*\*Branch:\*\* $\{BRANCH\}\\\\n\*\*PR:\*\* $\{\{ github\.event\.pull\_request\.html\_url \}\}\\\\n\*\*Run:\*\* $\{RUN\_URL\}\\\\n\\\\nSzczegoly w powyzszym linku\.\\"\},
 
               \\"\_links\\": \{
 
@@ -484,7 +572,43 @@ jobs:
 
               \}
 
-            \}"
+            \}"\)
+
+          BUG\_ID=$\(echo "$RESPONSE" | jq \-r '\.id'\)
+
+          echo "bug\_id=$\{BUG\_ID\}" >> $GITHUB\_OUTPUT
+
+          echo "wp\_id=$\{WP\_ID\}" >> $GITHUB\_OUTPUT
+
+          echo "failures=$\{FAILURES\}" >> $GITHUB\_OUTPUT
+
+      \- name: Add comment to parent WP about Bug
+
+        if: steps\.create\_bug\.outputs\.bug\_id \!= '' && steps\.create\_bug\.outputs\.wp\_id \!= ''
+
+        run: |
+
+          AUTH=$\(echo \-n "apikey:$\{\{ secrets\.OPENPROJECT\_API\_TOKEN \}\}" | base64 \-w 0\)
+
+          BUG\_ID="${\{ steps\.create\_bug\.outputs\.bug\_id \}\}"
+
+          FAILURES="${\{ steps\.create\_bug\.outputs\.failures \}\}"
+
+          RUN\_URL="${\{ github\.server\_url \}\}/$\{\{ github\.repository \}\}/actions/runs/$\{\{ github\.run\_id \}\}"
+
+          OP\_URL="${\{ secrets\.OPENPROJECT\_URL \}\}"
+
+          COMMENT="\*\*Automated Bug created\*\* from failing tests\\n\\n\*\*Bug:\*\* \[\#$\{BUG\_ID\}\]\($\{OP\_URL\}/work\_packages/$\{BUG\_ID\}\)\\n\*\*Failed tests:\*\* $\{FAILURES\}\\n\*\*CI Run:\*\* \[View logs\]\($\{RUN\_URL\}\)"
+
+          curl \-sf \-X POST \\
+
+            "$\{OP\_URL\}/api/v3/work\_packages/$\{\{ steps\.create\_bug\.outputs\.wp\_id \}\}/activities" \\
+
+            \-H "Content\-Type: application/json" \\
+
+            \-H "Authorization: Basic $\{AUTH\}" \\
+
+            \-d "\{\\"comment\\": \{\\"raw\\": \\"$\{COMMENT\}\\"\}\}"
 
 ### __Plik 3: deploy\.yml — trigger Cloud Build po merge do main__
 
@@ -514,6 +638,22 @@ jobs:
 
       \- uses: actions/checkout@v4
 
+        with:
+
+          fetch\-depth: 2
+
+      \- name: Extract OP Work Package ID from merge commit
+
+        id: extract
+
+        run: |
+
+          COMMIT\_MSG=$\(git log \-1 \-\-pretty=%B\)
+
+          WP\_ID=$\(echo "$COMMIT\_MSG" | grep \-oP 'OP\-\\K\[0\-9\]\+' | head \-1\)
+
+          echo "wp\_id=$\{WP\_ID\}" >> $GITHUB\_OUTPUT
+
       \- id: auth
 
         uses: google\-github\-actions/auth@v2
@@ -528,15 +668,55 @@ jobs:
 
       \- name: Submit build to Cloud Build
 
+        id: build
+
         run: |
 
-          gcloud builds submit \\
+          SHORT\_SHA=$\(echo "$\{\{ github\.sha \}\}" | cut \-c1\-7\)
+
+          BUILD\_OUTPUT=$\(gcloud builds submit \\
 
             \-\-config=cloudbuild\.yaml \\
 
-            \-\-substitutions=SHORT\_SHA=$\{\{ github\.sha \}\},\_REGION=$\{\{ secrets\.GCP\_REGION \}\} \\
+            \-\-substitutions=\_SHORT\_SHA=$\{SHORT\_SHA\},\_REGION=$\{\{ secrets\.GCP\_REGION \}\} \\
 
-            \-\-project=$\{\{ secrets\.GCP\_PROJECT\_ID \}\}
+            \-\-project=$\{\{ secrets\.GCP\_PROJECT\_ID \}\} 2>&1\)
+
+          echo "$BUILD\_OUTPUT"
+
+          BUILD\_ID=$\(echo "$BUILD\_OUTPUT" | grep \-oP 'ID: \\K\[a\-f0\-9\-\]\+' | head \-1\)
+
+          echo "build\_id=$\{BUILD\_ID\}" >> $GITHUB\_OUTPUT
+
+      \- name: Add deploy comment to OpenProject
+
+        if: steps\.extract\.outputs\.wp\_id \!= ''
+
+        run: |
+
+          AUTH=$\(echo \-n "apikey:$\{\{ secrets\.OPENPROJECT\_API\_TOKEN \}\}" | base64 \-w 0\)
+
+          SHORT\_SHA=$\(echo "$\{\{ github\.sha \}\}" | cut \-c1\-7\)
+
+          REGION="${\{ secrets\.GCP\_REGION \}\}"
+
+          PROJECT="${\{ secrets\.GCP\_PROJECT\_ID \}\}"
+
+          BUILD\_URL="https://console\.cloud\.google\.com/cloud\-build/builds?project=$\{PROJECT\}"
+
+          IMAGE="$\{REGION\}\-docker\.pkg\.dev/$\{PROJECT\}/app/my\-service:$\{SHORT\_SHA\}"
+
+          COMMENT="\*\*Deployed to Cloud Run\*\*\\n\\n\*\*Build:\*\* \[View in Cloud Console\]\($\{BUILD\_URL\}\)\\n\*\*Image:\*\* \\\`$\{IMAGE\}\\\`\\n\*\*Region:\*\* $\{REGION\}\\n\*\*Commit:\*\* $\{SHORT\_SHA\}"
+
+          curl \-sf \-X POST \\
+
+            "$\{\{ secrets\.OPENPROJECT\_URL \}\}/api/v3/work\_packages/$\{\{ steps\.extract\.outputs\.wp\_id \}\}/activities" \\
+
+            \-H "Content\-Type: application/json" \\
+
+            \-H "Authorization: Basic $\{AUTH\}" \\
+
+            \-d "\{\\"comment\\": \{\\"raw\\": \\"$\{COMMENT\}\\"\}\}"
 
 ### __Plik cloudbuild\.yaml — build, push i deploy w GCP \(w repo obok Dockerfile\)__
 
@@ -544,11 +724,13 @@ Ten plik trafia do korzenia repozytorium\. Cloud Build wykonuje wszystkie kroki 
 
 substitutions:
 
-  \_REGION: us\-central1
+  \_REGION: europe\-central2
 
   \_SERVICE: my\-service
 
   \_REPO: app
+
+  \_SHORT\_SHA: latest
 
 steps:
 
@@ -580,7 +762,7 @@ steps:
 
       \- \-t
 
-      \- $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:$SHORT\_SHA
+      \- $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:$\{\_SHORT\_SHA\}
 
       \- \-t
 
@@ -592,9 +774,13 @@ steps:
 
   \- name: gcr\.io/cloud\-builders/docker
 
-    args: \[push, \-\-all\-tags,
+    args:
 
-           $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}\]
+      \- push
+
+      \- \-\-all\-tags
+
+      \- $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}
 
   \# Krok 4: Deploy na Cloud Run
 
@@ -610,17 +796,19 @@ steps:
 
       \- $\{\_SERVICE\}
 
-      \- \-\-image=$\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:$SHORT\_SHA
+      \- \-\-image=$\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:$\{\_SHORT\_SHA\}
 
       \- \-\-region=$\{\_REGION\}
 
       \- \-\-platform=managed
 
+      \- \-\-allow\-unauthenticated
+
       \- \-\-quiet
 
 images:
 
-  \- $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:$SHORT\_SHA
+  \- $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:$\{\_SHORT\_SHA\}
 
   \- $\{\_REGION\}\-docker\.pkg\.dev/$PROJECT\_ID/$\{\_REPO\}/$\{\_SERVICE\}:latest
 
@@ -658,19 +846,21 @@ gcloud artifacts repositories create app \\
 
   \-\-description='Application Docker images'
 
-## __3\.3  Service Account dla GitHub Actions \(tylko trigger\)__
+## __3\.3  Service Account dla GitHub Actions__
 
-GitHub Actions potrzebuje tylko jednego uprawnienia: uruchomienie Cloud Buildu\. Sama budowa i push dzieje się po stronie GCP na koncie Cloud Build SA — nie na tym samym SA co GitHub\.
+GitHub Actions potrzebuje zestawu ról odkrytych podczas testowania\. Sama budowa i push dzieje się po stronie GCP na koncie Cloud Build SA — ale GitHub Actions SA również potrzebuje kilku ról, bo gcloud builds submit wymaga dostępu do GCS \(upload tarballa\), Artifact Registry i Cloud Run\.
 
-\# SA dla GitHub Actions — minimalny zakres
+\# SA dla GitHub Actions
 
 gcloud iam service\-accounts create github\-actions \\
 
-  \-\-display\-name='GitHub Actions — Cloud Build trigger only'
+  \-\-display\-name='GitHub Actions — Cloud Build trigger'
 
 SA="github\-actions@$\{PROJECT\_ID\}\.iam\.gserviceaccount\.com"
 
-\# Tylko jedno uprawnienie — uruchomienie buildu
+\# Wymagane role dla GitHub Actions SA \(odkryte podczas testowania\):
+
+\# 1\. roles/cloudbuild\.builds\.editor — submit builds
 
 gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
 
@@ -678,27 +868,67 @@ gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
 
   \-\-role="roles/cloudbuild\.builds\.editor"
 
-\# Cloud Build SA \(domyślny\) potrzebuje uprawnień do Artifact Registry i Cloud Run
-
-CB\_SA="$\(gcloud projects describe $\{PROJECT\_ID\} \-\-format='value\(projectNumber\)'\)@cloudbuild\.gserviceaccount\.com"
+\# 2\. roles/run\.admin — deploy do Cloud Run
 
 gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
 
-  \-\-member="serviceAccount:$\{CB\_SA\}" \\
+  \-\-member="serviceAccount:$\{SA\}" \\
+
+  \-\-role="roles/run\.admin"
+
+\# 3\. roles/iam\.serviceAccountUser — act as runtime SA
+
+gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
+
+  \-\-member="serviceAccount:$\{SA\}" \\
+
+  \-\-role="roles/iam\.serviceAccountUser"
+
+\# 4\. roles/artifactregistry\.writer — push Docker images
+
+gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
+
+  \-\-member="serviceAccount:$\{SA\}" \\
 
   \-\-role="roles/artifactregistry\.writer"
 
+\# 5\. roles/storage\.admin — upload source tarball to GCS
+
+gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
+
+  \-\-member="serviceAccount:$\{SA\}" \\
+
+  \-\-role="roles/storage\.admin"
+
+\# Cloud Build SA \(domyślny\) potrzebuje uprawnień do Cloud Run i logowania
+
+CB\_SA="$\(gcloud projects describe $\{PROJECT\_ID\} \-\-format='value\(projectNumber\)'\)@cloudbuild\.gserviceaccount\.com"
+
+\# 1\. roles/run\.admin — deploy do Cloud Run
+
 gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
 
   \-\-member="serviceAccount:$\{CB\_SA\}" \\
 
-  \-\-role="roles/run\.developer"
+  \-\-role="roles/run\.admin"
+
+\# 2\. roles/iam\.serviceAccountUser — act as runtime SA przy deploy
 
 gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
 
   \-\-member="serviceAccount:$\{CB\_SA\}" \\
 
   \-\-role="roles/iam\.serviceAccountUser"
+
+\# 3\. roles/logging\.logWriter — zapis logów z Cloud Build
+
+gcloud projects add\-iam\-policy\-binding $\{PROJECT\_ID\} \\
+
+  \-\-member="serviceAccount:$\{CB\_SA\}" \\
+
+  \-\-role="roles/logging\.logWriter"
+
+__⚠ UWAGA  __Brak którejkolwiek z powyższych ról powoduje trudne do zdiagnozowania błędy\. Np\. brak roles/storage\.admin skutkuje błędem "access denied" przy upload tarballa źródłowego, a brak roles/run\.admin powoduje błąd przy deploy na Cloud Run\.
 
 ## __3\.4  Workload Identity Federation — bez kluczy JSON w GitHub__
 
@@ -722,7 +952,11 @@ gcloud iam workload\-identity\-pools providers create\-oidc github\-provider \\
 
   \-\-issuer\-uri=https://token\.actions\.githubusercontent\.com \\
 
-  \-\-attribute\-mapping='google\.subject=assertion\.sub,attribute\.repository=assertion\.repository'
+  \-\-attribute\-mapping='google\.subject=assertion\.sub,attribute\.repository=assertion\.repository' \\
+
+  \-\-attribute\-condition="assertion\.repository=='YOUR\_ORG/YOUR\_REPO'"
+
+__⚠ UWAGA  __Parametr \-\-attribute\-condition jest wymagany\. Bez niego dowolne repozytorium GitHub mogłoby się uwierzytelnić przez Twój WIF pool\. Zamień YOUR\_ORG/YOUR\_REPO na swoją organizację i nazwę repozytorium\.
 
 \# Pobierz POOL\_ID
 
