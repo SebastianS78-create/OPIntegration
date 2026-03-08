@@ -64,9 +64,21 @@ Closes OP #<ID>
 
 ## GitHub Actions Workflows
 Three workflow files in `.github/workflows/`:
-1. `op-status-update.yml` — auto-updates OP status on push/PR events
-2. `tests.yml` — runs tests, creates Bug WP in OP on failure
-3. `deploy.yml` — triggers Cloud Build on merge to main (build+push+deploy happens in GCP)
+1. `op-status-update.yml` — auto-updates OP status + adds comment to Activity on push/PR events
+2. `tests.yml` — runs tests, creates Bug WP + adds comment to parent WP on failure
+3. `deploy.yml` — triggers Cloud Build on merge to main + adds deploy comment to OP
+
+## OpenProject Comment API
+Workflows write comments to WP Activity tab via:
+- Endpoint: `POST /api/v3/work_packages/{id}/activities`
+- Body: `{"comment": {"raw": "markdown text"}}`
+- Supports markdown formatting and links
+
+## OpenProject Prerequisites (discovered during testing)
+- **Workflow transitions**: Must be configured in Administration > Workflows for each role/type
+  - Required: New>In progress, In progress>In testing, In testing>Tested, In progress>Rejected, In testing>Rejected
+- **Bug type**: Must be enabled per project in Project Settings > Types
+- **API user role**: Must have Edit work packages permission in each project
 
 ## Key Files
 - `docs/OpenProject_GitHub_GCP_Config_Guide.md` — full config guide with all details
@@ -74,6 +86,8 @@ Three workflow files in `.github/workflows/`:
 - `.github/workflows/` — GitHub Actions automation
 - `.github/PULL_REQUEST_TEMPLATE.md` — PR template
 - `cloudbuild.yaml` — Cloud Build pipeline (build, push to Artifact Registry, deploy to Cloud Run)
+- `Dockerfile` — Python/FastAPI container for Cloud Run
+- `app.py` — minimal FastAPI app (health check + monitoring endpoints)
 - `README.md` — project overview with branch naming convention
 
 ## Rules for AI
