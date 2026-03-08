@@ -34,9 +34,10 @@ jobs:
       - name: Submit build to Cloud Build
         id: build
         run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           BUILD_OUTPUT=$(gcloud builds submit \
             --config=cloudbuild.yaml \
-            --substitutions=SHORT_SHA=${{ github.sha }},_REGION=${{ secrets.GCP_REGION }} \
+            --substitutions=_SHORT_SHA=${SHORT_SHA},_REGION=${{ secrets.GCP_REGION }} \
             --project=${{ secrets.GCP_PROJECT_ID }} 2>&1)
           echo "$BUILD_OUTPUT"
           BUILD_ID=$(echo "$BUILD_OUTPUT" | grep -oP 'ID: \K[a-f0-9-]+' | head -1)
