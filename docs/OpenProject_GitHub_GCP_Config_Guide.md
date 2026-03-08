@@ -189,6 +189,10 @@ Ręcznie przez PO — jedyna ręczna zmiana
 
 __✓ SUKCES  __Statusy In Progress, In Review, Resolved, Rejected są zmieniane przez GitHub Actions przez REST API — działają na każdym planie OpenProject, bez Enterprise\.
 
+__⚠ UWAGA  __WAŻNE — Wymagana konfiguracja Workflow Transitions: W Administration → Workflows musisz skonfigurować dozwolone przejścia statusów dla każdej roli i typu WP\. Bez tego API zwróci błąd "no valid transition exists"\. Wymagane przejścia: New→In progress, In progress→In testing, In testing→Tested, In progress→Rejected, In testing→Rejected\.
+
+__⚠ UWAGA  __Typ Bug musi być włączony w każdym projekcie, w którym GitHub Actions ma tworzyć bugi: Project Settings → Types → zaznacz Bug\.
+
 ## __1\.5  Opcjonalne: Custom Fields dla BI Feature__
 
 Możesz dodać pola tekstowe do BI Feature przez Administration → Custom Fields → Work Packages → New custom field:

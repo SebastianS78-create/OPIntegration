@@ -13,6 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Extract OP Work Package ID from merge commit
+        id: extract
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          WP_ID=$(echo "$COMMIT_MSG" | grep -oP 'OP-\K[0-9]+' | head -1)
+          echo "wp_id=${WP_ID}" >> $GITHUB_OUTPUT
 
       - id: auth
         uses: google-github-actions/auth@v2
@@ -23,8 +32,29 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Submit build to Cloud Build
+        id: build
         run: |
-          gcloud builds submit \
+          BUILD_OUTPUT=$(gcloud builds submit \
             --config=cloudbuild.yaml \
             --substitutions=SHORT_SHA=${{ github.sha }},_REGION=${{ secrets.GCP_REGION }} \
-            --project=${{ secrets.GCP_PROJECT_ID }}
+            --project=${{ secrets.GCP_PROJECT_ID }} 2>&1)
+          echo "$BUILD_OUTPUT"
+          BUILD_ID=$(echo "$BUILD_OUTPUT" | grep -oP 'ID: \K[a-f0-9-]+' | head -1)
+          echo "build_id=${BUILD_ID}" >> $GITHUB_OUTPUT
+
+      - name: Add deploy comment to OpenProject
+        if: steps.extract.outputs.wp_id != ''
+        run: |
+          AUTH=$(echo -n "apikey:${{ secrets.OPENPROJECT_API_TOKEN }}" | base64 -w 0)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          REGION="${{ secrets.GCP_REGION }}"
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          BUILD_URL="https://console.cloud.google.com/cloud-build/builds?project=${PROJECT}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/app/my-service:${SHORT_SHA}"
+          COMMENT="**Deployed to Cloud Run**\n\n**Build:** [View in Cloud Console](${BUILD_URL})\n**Image:** \`${IMAGE}\`\n**Region:** ${REGION}\n**Commit:** ${SHORT_SHA}"
+
+          curl -sf -X POST \
+            "${{ secrets.OPENPROJECT_URL }}/api/v3/work_packages/${{ steps.extract.outputs.wp_id }}/activities" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Basic ${AUTH}" \
+            -d "{\"comment\": {\"raw\": \"${COMMENT}\"}}"

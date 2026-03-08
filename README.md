@@ -38,11 +38,22 @@ task(OP-87): description of technical task
 
 ## Automation Flow
 
-1. Developer creates branch with `OP-{ID}` → push triggers status **In Progress** in OpenProject
-2. Tests run on push/PR → failing tests create **Bug** work packages in OpenProject
-3. PR opened → status changes to **In Testing**
-4. PR merged to main → status changes to **Tested** + Cloud Build deploys to Cloud Run
-5. PR closed without merge → status changes to **Rejected**
+Each step auto-updates the OP work package status **and** writes a comment to the Activity tab:
+
+1. Developer creates branch with `OP-{ID}` → push triggers status **In Progress** + commit info comment
+2. Tests run on push/PR → failing tests create **Bug** WP + comment on parent WP with link
+3. PR opened → status changes to **In Testing** + PR link comment
+4. PR merged to main → status changes to **Tested** + merge comment + Cloud Build deploys to Cloud Run + deploy comment
+5. PR closed without merge → status changes to **Rejected** + comment
+
+## Prerequisites
+
+Before the automation works for a project in OpenProject:
+
+- **Workflow transitions** must be configured in Administration > Workflows:
+  New > In progress > In testing > Tested, plus In progress/In testing > Rejected
+- **Bug type** must be enabled in Project Settings > Types
+- **API user** needs "Edit work packages" permission in each project
 
 ## Documentation
 

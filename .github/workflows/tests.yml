@@ -20,24 +20,47 @@ jobs:
         run: pytest --tb=short --json-report --json-report-file=test_report.json
 
       - name: Create Bug in OpenProject on test failure
+        id: create_bug
         if: steps.pytest.outcome == 'failure'
         run: |
           BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
           WP_ID=$(echo "$BRANCH" | grep -oP 'OP-\K[0-9]+' | head -1)
           FAILURES=$(cat test_report.json | jq -r '.summary.failed // 0')
           AUTH=$(echo -n "apikey:${{ secrets.OPENPROJECT_API_TOKEN }}" | base64 -w 0)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          curl -sf -X POST \
+          RESPONSE=$(curl -sf -X POST \
             "${{ secrets.OPENPROJECT_URL }}/api/v3/projects/${{ secrets.OPENPROJECT_PROJECT_ID }}/work_packages" \
             -H "Content-Type: application/json" \
             -H "Authorization: Basic ${AUTH}" \
             -d "{
               \"subject\": \"[BUG] Test failure in ${BRANCH} — ${FAILURES} tests failed\",
-              \"description\": {\"format\": \"markdown\", \"raw\": \"## Automatyczny Bug z GitHub Actions\\n\\n**Branch:** ${BRANCH}\\n**PR:** ${{ github.event.pull_request.html_url }}\\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\\n\\nSzczegoly w powyzszym linku.\"},
+              \"description\": {\"format\": \"markdown\", \"raw\": \"## Automatyczny Bug z GitHub Actions\\n\\n**Branch:** ${BRANCH}\\n**PR:** ${{ github.event.pull_request.html_url }}\\n**Run:** ${RUN_URL}\\n\\nSzczegoly w powyzszym linku.\"},
               \"_links\": {
                 \"type\": {\"href\": \"/api/v3/types/7\"},
                 \"status\": {\"href\": \"/api/v3/statuses/1\"},
                 \"priority\": {\"href\": \"/api/v3/priorities/9\"},
                 \"parent\": {\"href\": \"/api/v3/work_packages/${WP_ID}\"}
               }
-            }"
+            }")
+
+          BUG_ID=$(echo "$RESPONSE" | jq -r '.id')
+          echo "bug_id=${BUG_ID}" >> $GITHUB_OUTPUT
+          echo "wp_id=${WP_ID}" >> $GITHUB_OUTPUT
+          echo "failures=${FAILURES}" >> $GITHUB_OUTPUT
+
+      - name: Add comment to parent WP about Bug
+        if: steps.create_bug.outputs.bug_id != '' && steps.create_bug.outputs.wp_id != ''
+        run: |
+          AUTH=$(echo -n "apikey:${{ secrets.OPENPROJECT_API_TOKEN }}" | base64 -w 0)
+          BUG_ID="${{ steps.create_bug.outputs.bug_id }}"
+          FAILURES="${{ steps.create_bug.outputs.failures }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          OP_URL="${{ secrets.OPENPROJECT_URL }}"
+          COMMENT="**Automated Bug created** from failing tests\n\n**Bug:** [#${BUG_ID}](${OP_URL}/work_packages/${BUG_ID})\n**Failed tests:** ${FAILURES}\n**CI Run:** [View logs](${RUN_URL})"
+
+          curl -sf -X POST \
+            "${OP_URL}/api/v3/work_packages/${{ steps.create_bug.outputs.wp_id }}/activities" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Basic ${AUTH}" \
+            -d "{\"comment\": {\"raw\": \"${COMMENT}\"}}"
