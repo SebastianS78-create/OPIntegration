@@ -60,7 +60,16 @@ Closes OP #<ID>
 
 ## OpenProject API Authentication
 - Format: `Authorization: Basic base64(apikey:TOKEN)`
-- Token stored as GitHub Secret: `OPENPROJECT_API_TOKEN`
+- CI: GitHub Secret `OPENPROJECT_API_TOKEN` (shared bot token)
+- Local: `OP_API_TOKEN` env var or GCP SM per-developer secret `op-api-token-{name}`
+- Rule: each developer has their own personal token — no shared credentials
+- Env var `OP_DEVELOPER` identifies whose secret to read (e.g. "sebastian")
+
+## Context Fetcher — Task Start Ritual
+- Run `python scripts/op_context.py <WP_ID>` to print OP context
+- Run `python scripts/op_context.py <WP_ID> --file` to save to `.claude_context`
+- If `.claude_context` exists in repo root, read it at session start — it has task requirements
+- Token resolution: env var `OP_API_TOKEN` → GCP SM `op-api-token-{OP_DEVELOPER}` → error
 
 ## GitHub Actions Workflows
 Three workflow files in `.github/workflows/`:
@@ -88,6 +97,8 @@ Workflows write comments to WP Activity tab via:
 - `cloudbuild.yaml` — Cloud Build pipeline (build, push to Artifact Registry, deploy to Cloud Run)
 - `Dockerfile` — Python/FastAPI container for Cloud Run
 - `app.py` — minimal FastAPI app (health check + monitoring endpoints)
+- `scripts/op_context.py` — OP context fetcher for Claude Code sessions
+- `.claude_instructions` — developer quick reference for AI coding
 - `README.md` — project overview with branch naming convention
 
 ## Rules for AI

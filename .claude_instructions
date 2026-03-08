@@ -1,0 +1,168 @@
+# .claude_instructions — Developer Quick Reference
+
+<!--
+  Committed to repo root alongside CLAUDE.md.
+  Daily cheat sheet. CLAUDE.md has full rules.
+-->
+
+---
+
+## Task Start Ritual (Do This Every Time)
+
+The script `scripts/op_context.py` fetches everything Claude needs automatically:
+your task details, the parent feature, and all sibling tasks with their statuses.
+
+### Step 1 — Run the context fetcher
+
+```bash
+# Prints full context + ready-to-paste prompt
+python scripts/op_context.py 40
+
+# Also copies the prompt block to clipboard
+python scripts/op_context.py 40 --copy
+
+# Saves to .claude_context (Claude Code reads this file automatically if present)
+python scripts/op_context.py 40 --file
+```
+
+The output shows you:
+- Your task: requirements, acceptance criteria, assignee, Work/Spent time
+- Parent feature: business context, budget
+- Sibling tasks IN PROGRESS by other developers (coordinate before coding)
+- Already completed sibling tasks (what has been built — don't duplicate)
+- Pending sibling tasks (don't implement their scope yet)
+- A ready-to-paste Claude Code prompt at the bottom
+
+### Step 2 — Open VS Code in the project repo
+
+```bash
+code /path/to/OPintegration
+```
+
+### Step 3 — Paste the generated prompt into Claude Code
+
+Copy the block between the "PASTE THIS INTO CLAUDE CODE" lines.
+Claude will confirm the plan before writing any code.
+
+### Setup (one-time per developer machine)
+
+```bash
+# 1. Generate personal API token:
+#    OpenProject > Avatar > My Account > Access Tokens > + API access token
+
+# 2. Store YOUR token in GCP Secret Manager:
+gcloud config set project opintegr
+gcloud secrets create op-api-token-yourname --replication-policy="automatic"
+echo -n "YOUR_TOKEN" | gcloud secrets versions add op-api-token-yourname --data-file=-
+
+# 3. Set env vars (add to ~/.bashrc or ~/.zshrc):
+export OP_DEVELOPER="yourname"
+
+# 4. Auth for Secret Manager access:
+gcloud auth application-default login --project opintegr
+```
+
+Each developer has their own secret: `op-api-token-{firstname}`.
+When someone leaves, their OP account is blocked and the token dies automatically.
+
+---
+
+## Standard Prompts by Work Type
+
+### Python / FastAPI Work
+
+Generate implementation:
+```
+Implement [feature description] for OP-[ID].
+Stack: Python FastAPI, Pydantic v2, async endpoints.
+Create: src/[module]/[filename].py
+Include pytest tests at: tests/test_[filename].py
+Follow all rules from CLAUDE.md.
+```
+
+Generate tests:
+```
+Write pytest tests for [function/class] in OP-[ID].
+Cover: happy path, edge cases, error handling.
+Target coverage: >80%.
+```
+
+---
+
+## Commit and Branch Generators
+
+Ask Claude to generate the branch name:
+```
+Generate branch name for OP-[ID]: [paste task subject]
+Work type: feature / task / fix
+```
+
+Ask Claude to generate commit message:
+```
+Generate commit message for OP-[ID].
+Changes made: [briefly describe]
+```
+
+Expected format:
+  Branch:  feature/OP-42-sellout-weekly-mart
+  Commit:  feat(OP-42): add mart_sellout_weekly with brand split
+
+---
+
+## Pre-PR Review Prompt
+
+```
+Review my changes for OP-[ID] before I open a PR.
+Files changed: [list them]
+Check: type hints, docstrings, ruff compliance, test coverage.
+Flag anything that will cause CI to fail or the PM to reject the PR.
+```
+
+---
+
+## Debug Prompts
+
+CI test failed:
+```
+CI test failed for OP-[ID].
+Auto-created Bug WP: OP-[bug-id]
+Test name: [test_function_name]
+Error: [paste full pytest error]
+Diagnose and fix.
+```
+
+---
+
+## Branch & Commit Reference
+
+| Work type      | Branch format          | Commit prefix    |
+|----------------|------------------------|------------------|
+| BI Feature     | feature/OP-42-name     | feat(OP-42):     |
+| BI Task        | task/OP-87-name        | task(OP-87):     |
+| Bug fix        | fix/OP-103-name        | fix(OP-103):     |
+| Refactor       | feature/OP-42-name     | refactor(OP-42): |
+
+---
+
+## Status Reference (automatic — you do nothing)
+
+| You do                           | OP status becomes                      |
+|----------------------------------|----------------------------------------|
+| Push to feature/OP-42-*          | AUTO: In Progress                      |
+| Open PR with "Closes OP #42"    | AUTO: In Testing                       |
+| PR merged to main               | AUTO: Tested + GCP deploy triggered    |
+| PR closed without merge          | AUTO: Rejected                         |
+| Tests fail on push               | AUTO: Bug WP created as child of OP-42 |
+
+PM manually sets Closed after verifying on production.
+
+---
+
+## Quick OpenProject API
+
+```bash
+# Check a specific WP
+curl -s -H "Authorization: Basic $(echo -n 'apikey:YOUR_TOKEN' | base64 -w 0)" \
+  https://aidevs4seba2.openproject.com/api/v3/work_packages/42 \
+  | jq '{id, subject, status: ._links.status.title}'
+```
