@@ -16,10 +16,11 @@ jobs:
 
       - name: Run pytest
         id: pytest
-        run: pytest --tb=short --json-report --json-report-file=test_report.json || true
+        continue-on-error: true
+        run: pytest --tb=short --json-report --json-report-file=test_report.json
 
       - name: Create Bug in OpenProject on test failure
-        if: failure()
+        if: steps.pytest.outcome == 'failure'
         run: |
           BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
           WP_ID=$(echo "$BRANCH" | grep -oP 'OP-\K[0-9]+' | head -1)
