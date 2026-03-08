@@ -57,4 +57,5 @@ Before the automation works for a project in OpenProject:
 
 ## Documentation
 
-Full configuration guide: [docs/OpenProject_GitHub_GCP_Config_Guide.md](docs/OpenProject_GitHub_GCP_Config_Guide.md)
+- Full configuration guide: [docs/OpenProject_GitHub_GCP_Config_Guide.md](docs/OpenProject_GitHub_GCP_Config_Guide.md)
+- Daily workflow guide (PM, Developer, Tester): [docs/daily-workflow-guide.md](docs/daily-workflow-guide.md)

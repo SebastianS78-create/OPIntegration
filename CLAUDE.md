@@ -95,3 +95,30 @@ Workflows write comments to WP Activity tab via:
 - Always use the correct status/type/priority IDs from the tables above
 - Branch names must always include `OP-{ID}` for automation to work
 - Do not modify files outside this project directory
+
+## Developer Workflow Rules
+
+- ALWAYS check OP for task description and acceptance criteria before coding
+- ALWAYS create branch from main with OP-{ID} pattern
+- ALWAYS write tests for new functionality before opening PR
+- ALWAYS use PR template from .github/PULL_REQUEST_TEMPLATE.md
+- NEVER push directly to main
+- NEVER change OP status manually — automation handles it
+- When fixing CI Bug: use `fix/OP-{BUG_ID}-description` branch
+- When creating commits: verify OP-{ID} is correct in message
+
+## Testing Conventions
+
+- Test files in `tests/` directory, naming: `test_{module}.py`
+- Use pytest (in requirements.txt)
+- Run before push: `pytest --tb=short`
+- CI runs pytest automatically on every push and PR
+- CI creates Bug WP in OP on failure with link to logs
+
+## Acceptance Criteria
+
+When OP task description contains checkboxes:
+
+- Each checkbox = one testable requirement
+- Write at least one pytest test per checkbox
+- Implementation done when ALL checkboxes pass
