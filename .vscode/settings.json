@@ -1,0 +1,15 @@
+{
+  "editor.formatOnSave": true,
+  "python.defaultInterpreterPath": ".venv/bin/python",
+  "editor.rulers": [88],
+  "github.copilot.editor.enableAutoCompletions": true,
+  "github.copilot.chat.welcomeMessage": "never",
+  "files.associations": {
+    "CLAUDE.md": "markdown",
+    "*.openproject": "json"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {"source.fixAll.ruff": "always"}
+  }
+}

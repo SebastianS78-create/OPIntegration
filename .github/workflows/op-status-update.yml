@@ -1,0 +1,58 @@
+name: Update OpenProject Status
+
+on:
+  push:
+    branches: ['feature/OP-*', 'task/OP-*', 'fix/OP-*']
+  pull_request:
+    types: [opened, closed, reopened]
+
+jobs:
+  update-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract OP Work Package ID
+        id: extract
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          WP_ID=$(echo "$BRANCH" | grep -oP 'OP-\K[0-9]+' | head -1)
+          echo "wp_id=${WP_ID}" >> $GITHUB_OUTPUT
+
+      - name: Set status based on event
+        id: status
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "status_id=7" >> $GITHUB_OUTPUT   # In Progress
+          elif [ "${{ github.event.action }}" = "opened" ]; then
+            echo "status_id=9" >> $GITHUB_OUTPUT   # In Testing (In Review)
+          elif [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+            echo "status_id=10" >> $GITHUB_OUTPUT  # Tested (Resolved)
+          elif [ "${{ github.event.action }}" = "closed" ]; then
+            echo "status_id=14" >> $GITHUB_OUTPUT  # Rejected
+          fi
+
+      - name: Get lockVersion from OpenProject
+        id: get_wp
+        if: steps.extract.outputs.wp_id != ''
+        run: |
+          AUTH=$(echo -n "apikey:${{ secrets.OPENPROJECT_API_TOKEN }}" | base64 -w 0)
+          RESPONSE=$(curl -sf \
+            "${{ secrets.OPENPROJECT_URL }}/api/v3/work_packages/${{ steps.extract.outputs.wp_id }}" \
+            -H "Authorization: Basic ${AUTH}")
+          echo "lock_version=$(echo $RESPONSE | jq -r '.lockVersion')" >> $GITHUB_OUTPUT
+
+      - name: Update OpenProject status
+        if: steps.extract.outputs.wp_id != '' && steps.status.outputs.status_id != ''
+        run: |
+          AUTH=$(echo -n "apikey:${{ secrets.OPENPROJECT_API_TOKEN }}" | base64 -w 0)
+          curl -sf -X PATCH \
+            "${{ secrets.OPENPROJECT_URL }}/api/v3/work_packages/${{ steps.extract.outputs.wp_id }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Basic ${AUTH}" \
+            -d '{
+              "lockVersion": ${{ steps.get_wp.outputs.lock_version }},
+              "_links": {
+                "status": {
+                  "href": "/api/v3/statuses/${{ steps.status.outputs.status_id }}"
+                }
+              }
+            }'

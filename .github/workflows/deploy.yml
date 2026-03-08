@@ -1,0 +1,30 @@
+name: Trigger Cloud Build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write   # Required for Workload Identity Federation
+
+jobs:
+  trigger-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Submit build to Cloud Build
+        run: |
+          gcloud builds submit \
+            --config=cloudbuild.yaml \
+            --substitutions=SHORT_SHA=${{ github.sha }},_REGION=${{ secrets.GCP_REGION }} \
+            --project=${{ secrets.GCP_PROJECT_ID }}
